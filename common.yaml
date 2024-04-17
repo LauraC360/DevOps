@@ -1,0 +1,63 @@
+---
+- name: Configure common
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Disable firewalld
+      systemd:
+        name: firewalld
+        state: stopped
+        enabled: no
+      
+    - name: Set timezone
+      timezone: 
+        name: Europe/Bucharest
+    
+    - name: Set PermitRootLogin to prohibit-password
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin prohibit-password'
+        state: present
+      notify: restart sshd
+    
+    - name: Install Docker
+      yum:
+        name: docker-ce
+        state: present
+    
+    - name: Install Root CA
+      copy:
+        src: /usr/share/easy-rsa/3.1.6/pki/issued/fiipractic.lan.crt
+        dest: /etc/pki/ca-trust/source/anchors/
+      notify: install ca
+
+  handlers:
+    - name: restart sshd
+      service: 
+        name: sshd
+        state: restarted
+    
+    - name: update ca
+      command: update-ca
+    
+  - name: Gitlab Setup
+    hosts: gitlab.fiipractic.lan
+    become: yes
+    tasks:
+      - name: Install gitlab-runner
+        shell: |
+          curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.rpm.sh" | sudo bash
+          sudo yum install gitlab-runner -y
+          sudo gitlab-runner install --user=root --working-directory=/home/gitlab-runner
+          sudo gitlab-runner start
+    
+      - name: Install gitlab-ce
+        shell: |
+          curl -sS https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.rpm.sh | sudo bash
+          sudo EXTERNAL_URL="http://gitlab.fiipractic.lan" yum install -y gitlab-ce
+
+    
+    vars:
+      ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
